@@ -34,6 +34,7 @@ enum Constants {
         static let eyeTrackingEnabled = "eyeTrackingEnabled"
         static let hasShownOnboarding = "hasShownOnboarding"
         static let earSensitivity = "earSensitivity"
+        static let selectedCameraID = "selectedCameraID"
     }
     
     // Animation constants

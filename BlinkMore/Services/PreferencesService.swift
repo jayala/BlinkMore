@@ -42,6 +42,7 @@ class PreferencesService: ObservableObject {
     @Published var fadeColor: NSColor = Constants.defaultFadeColor
     @Published var eyeTrackingEnabled: Bool = Constants.defaultEyeTrackingEnabled
     @Published var hasShownOnboarding: Bool = false
+    @Published var selectedCameraID: String? = nil
     
     @Published var earSensitivity: Double = Constants.defaultEARSensitivity {
         didSet {
@@ -110,6 +111,10 @@ class PreferencesService: ObservableObject {
             }
         }
         
+        if let storedCameraID = defaults.string(forKey: Constants.UserDefaultsKeys.selectedCameraID) {
+            selectedCameraID = storedCameraID
+        }
+        
         // Set up property observers
         setupPropertyObservers()
     }
@@ -166,6 +171,13 @@ class PreferencesService: ObservableObject {
             .dropFirst()
             .sink { [weak self] newValue in
                 self?.defaults.set(newValue, forKey: Constants.UserDefaultsKeys.earSensitivity)
+            }
+            .store(in: &cancellables)
+            
+        $selectedCameraID
+            .dropFirst()
+            .sink { [weak self] newValue in
+                self?.defaults.set(newValue, forKey: Constants.UserDefaultsKeys.selectedCameraID)
             }
             .store(in: &cancellables)
     }

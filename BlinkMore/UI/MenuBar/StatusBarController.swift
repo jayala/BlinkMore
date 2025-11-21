@@ -268,6 +268,9 @@ class StatusBarController {
                        button.image != self?.closedEyeImage {
                         button.image = self?.closedEyeImage
                     }
+                    
+                    // Reset camera menu to placeholder
+                    self?.resetCameraSubmenu()
                 }
                 
                 // Update the menu item state
@@ -414,6 +417,18 @@ class StatusBarController {
         // Set the submenu to the menu item
         colorMenuItem.submenu = colorsSubmenu
         menu.addItem(colorMenuItem)
+        
+        // Add Camera Selection submenu
+        let cameraMenuItem = NSMenuItem(title: "Select Camera", action: nil, keyEquivalent: "")
+        let cameraSubmenu = NSMenu()
+        cameraMenuItem.submenu = cameraSubmenu
+        menu.addItem(cameraMenuItem)
+        
+        // We'll populate the camera submenu when eye tracking is initialized
+        // For now, add a placeholder
+        let placeholderItem = NSMenuItem(title: "Enable Eye Tracking to see cameras", action: nil, keyEquivalent: "")
+        placeholderItem.isEnabled = false
+        cameraSubmenu.addItem(placeholderItem)
     }
     
     // Helper to create section headers using standard system styling
@@ -553,6 +568,14 @@ class StatusBarController {
         // Cancel any existing eye tracking subscriptions first
         eyeTrackingCancelBag.removeAll()
         
+        // Subscribe to available cameras changes
+        service.$availableCameras
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] cameras in
+                self?.updateCameraSubmenu(with: cameras)
+            }
+            .store(in: &eyeTrackingCancelBag)
+        
         // Optimize eye state monitoring with better Combine operators
         service.$isEyeOpen
             .removeDuplicates() // Prevent redundant updates for the same state
@@ -680,6 +703,79 @@ class StatusBarController {
         eyeTrackingService = nil
         
         print("StatusBarController termination preparation completed")
+    }
+    
+    // MARK: - Camera Selection Methods
+    
+    private func updateCameraSubmenu(with cameras: [(id: String, name: String)]) {
+        // Find the camera menu item
+        guard let cameraMenuItem = menu.items.first(where: { $0.title == "Select Camera" }),
+              let submenu = cameraMenuItem.submenu else {
+            return
+        }
+        
+        // Clear existing items
+        submenu.removeAllItems()
+        
+        // If no cameras available, show a message
+        if cameras.isEmpty {
+            let noCamerasItem = NSMenuItem(title: "No cameras detected", action: nil, keyEquivalent: "")
+            noCamerasItem.isEnabled = false
+            submenu.addItem(noCamerasItem)
+            return
+        }
+        
+        // Get current selected camera ID
+        let selectedCameraID = preferencesService.selectedCameraID
+        
+        // Add menu items for each camera
+        for camera in cameras {
+            let cameraItem = NSMenuItem(title: camera.name, action: #selector(cameraMenuItemSelected(_:)), keyEquivalent: "")
+            cameraItem.target = self
+            cameraItem.representedObject = camera.id
+            
+            // Check if this is the currently selected camera
+            if camera.id == selectedCameraID {
+                cameraItem.state = .on
+            }
+            
+            submenu.addItem(cameraItem)
+        }
+        
+        print("Updated camera submenu with \(cameras.count) camera(s)")
+    }
+    
+    @objc private func cameraMenuItemSelected(_ sender: NSMenuItem) {
+        guard let cameraID = sender.representedObject as? String else { return }
+        
+        // Update preferences
+        preferencesService.selectedCameraID = cameraID
+        
+        // Switch camera in eye tracking service
+        eyeTrackingService?.switchCamera(to: cameraID)
+        
+        // Update menu item states
+        if let submenu = sender.menu {
+            for item in submenu.items {
+                item.state = (item == sender) ? .on : .off
+            }
+        }
+    }
+    
+    private func resetCameraSubmenu() {
+        // Find the camera menu item
+        guard let cameraMenuItem = menu.items.first(where: { $0.title == "Select Camera" }),
+              let submenu = cameraMenuItem.submenu else {
+            return
+        }
+        
+        // Clear existing items
+        submenu.removeAllItems()
+        
+        // Add placeholder
+        let placeholderItem = NSMenuItem(title: "Enable Eye Tracking to see cameras", action: nil, keyEquivalent: "")
+        placeholderItem.isEnabled = false
+        submenu.addItem(placeholderItem)
     }
 }
 

@@ -14,6 +14,7 @@ import AppKit
 class EyeTrackingService: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     @Published var isEyeOpen: Bool = false
     @Published var isActive: Bool = false
+    @Published var availableCameras: [(id: String, name: String)] = []
     
     // Cached preference values
     private var cachedEARSensitivity: Double = Constants.defaultEARSensitivity
@@ -51,6 +52,9 @@ class EyeTrackingService: NSObject, ObservableObject, AVCaptureVideoDataOutputSa
         
         // Initialize cached values
         updateCachedPreferences()
+        
+        // Discover available cameras
+        discoverAvailableCameras()
     }
     
     deinit {
@@ -217,9 +221,9 @@ class EyeTrackingService: NSObject, ObservableObject, AVCaptureVideoDataOutputSa
         let session = AVCaptureSession()
         session.sessionPreset = .medium // Lower resolution for better performance
         
-        // Find front camera
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) else {
-            print("Failed to access front camera")
+        // Get the selected camera device
+        guard let device = getSelectedCameraDevice() else {
+            print("Failed to access selected camera")
             return
         }
         
@@ -443,5 +447,96 @@ class EyeTrackingService: NSObject, ObservableObject, AVCaptureVideoDataOutputSa
                 print("Updated cached EAR sensitivity to: \(newValue)")
             }
             .store(in: &cancellables)
+    }
+    
+    // MARK: - Camera Discovery and Selection
+    
+    /// Discover all available cameras on the system
+    private func discoverAvailableCameras() {
+        let discoverySession = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInWideAngleCamera, .externalUnknown],
+            mediaType: .video,
+            position: .unspecified
+        )
+        
+        let cameras = discoverySession.devices.map { device in
+            (id: device.uniqueID, name: device.localizedName)
+        }
+        
+        DispatchQueue.main.async {
+            self.availableCameras = cameras
+            print("Discovered \(cameras.count) camera(s): \(cameras.map { $0.name }.joined(separator: ", "))")
+        }
+    }
+    
+    /// Get the currently selected camera device, falling back to the default front camera
+    private func getSelectedCameraDevice() -> AVCaptureDevice? {
+        // Check if user has selected a specific camera
+        if let selectedID = preferencesService.selectedCameraID {
+            // Try to find the selected camera
+            if let device = AVCaptureDevice(uniqueID: selectedID) {
+                print("Using selected camera: \(device.localizedName)")
+                return device
+            } else {
+                print("Selected camera not found, falling back to default")
+            }
+        }
+        
+        // Fall back to default front camera
+        let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
+        if let device = device {
+            print("Using default front camera: \(device.localizedName)")
+            // Save this as the default selection
+            DispatchQueue.main.async {
+                self.preferencesService.selectedCameraID = device.uniqueID
+            }
+        }
+        return device
+    }
+    
+    /// Switch to a different camera while tracking is active
+    func switchCamera(to cameraID: String) {
+        guard let newDevice = AVCaptureDevice(uniqueID: cameraID) else {
+            print("Failed to find camera with ID: \(cameraID)")
+            return
+        }
+        
+        print("Switching to camera: \(newDevice.localizedName)")
+        
+        // Save the selection
+        preferencesService.selectedCameraID = cameraID
+        
+        // If tracking is active, restart with new camera
+        if isActive {
+            captureSessionQueue.async { [weak self] in
+                guard let self = self else { return }
+                
+                // Stop current session
+                if let session = self.captureSession, session.isRunning {
+                    session.stopRunning()
+                }
+                
+                // Remove all existing inputs
+                if let session = self.captureSession {
+                    for input in session.inputs {
+                        session.removeInput(input)
+                    }
+                }
+                
+                // Add new camera input
+                do {
+                    let input = try AVCaptureDeviceInput(device: newDevice)
+                    if let session = self.captureSession, session.canAddInput(input) {
+                        session.addInput(input)
+                        session.startRunning()
+                        print("Successfully switched camera")
+                    } else {
+                        print("Failed to add new camera input")
+                    }
+                } catch {
+                    print("Failed to create input for new camera: \(error.localizedDescription)")
+                }
+            }
+        }
     }
 } 

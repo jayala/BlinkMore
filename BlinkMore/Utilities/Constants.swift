@@ -24,7 +24,7 @@ enum Constants {
     static let maxEARSensitivity: Double = 0.22 // low sensitivity
     
     static let defaultFadeColor: NSColor = .black
-    static let defaultEyeTrackingEnabled: Bool = false
+    static let defaultEyeTrackingEnabled: Bool = true
     
     // UserDefaults keys
     enum UserDefaultsKeys {

@@ -356,15 +356,11 @@ class FadeService: ObservableObject {
     }
     
     private func handleFadeTimeout() {
-        print("Fade timeout reached after \(fadeTimeoutInterval)s - disabling eye tracking")
+        print("Fade timeout reached after \(fadeTimeoutInterval)s - removing fade but keeping eye tracking enabled")
         
-        // Remove fade
+        // Remove fade - eye tracking will remain enabled
+        // When a blink is detected again, applyFade() will be called and the timeout timer will restart
         removeFade()
-        
-        // Disable eye tracking in preferences
-        DispatchQueue.main.async {
-            self.preferencesService.eyeTrackingEnabled = false
-        }
     }
 }
 

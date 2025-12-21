@@ -451,6 +451,38 @@ class EyeTrackingService: NSObject, ObservableObject, AVCaptureVideoDataOutputSa
     
     // MARK: - Camera Discovery and Selection
     
+    /// Check if the MacBook lid is closed by detecting if the built-in display exists
+    private func isLidClosed() -> Bool {
+        let process = Process()
+        let pipe = Pipe()
+        
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/ioreg")
+        process.arguments = ["-r", "-k", "AppleClamshellState", "-d", "4"]
+        process.standardOutput = pipe
+        
+        do {
+            try process.run()
+            process.waitUntilExit()
+            
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: data, encoding: .utf8) else {
+                return false
+            }
+            
+            // Check if the output contains "AppleClamshellState" = Yes
+            return output.contains("\"AppleClamshellState\" = Yes")
+        } catch {
+            print("Error checking clamshell state: \(error)")
+            return false
+        }
+    }
+    
+    /// Check if a camera is the built-in FaceTime HD camera
+    private func isBuiltInFaceTimeCamera(_ device: AVCaptureDevice) -> Bool {
+        // Built-in FaceTime camera is typically a built-in wide angle camera
+        return device.deviceType == .builtInWideAngleCamera && device.localizedName.contains("FaceTime HD")
+    }
+    
     /// Discover all available cameras on the system
     private func discoverAvailableCameras() {
         let discoverySession = AVCaptureDevice.DiscoverySession(
@@ -468,13 +500,31 @@ class EyeTrackingService: NSObject, ObservableObject, AVCaptureVideoDataOutputSa
             print("Discovered \(cameras.count) camera(s): \(cameras.map { $0.name }.joined(separator: ", "))")
         }
     }
+
+    private func getExternalCameraDevice() -> AVCaptureDevice? {
+        let discoverySession = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.externalUnknown],
+            mediaType: .video,
+            position: .unspecified
+        )
+        if let externalDevice = discoverySession.devices.first {
+            print("Using external camera instead: \(externalDevice.localizedName)")
+            return externalDevice
+        } else {
+            print("No external cameras available")
+            return nil
+        }
+    }
     
     /// Get the currently selected camera device, falling back to the default front camera
     private func getSelectedCameraDevice() -> AVCaptureDevice? {
         // Check if user has selected a specific camera
         if let selectedID = preferencesService.selectedCameraID {
-            // Try to find the selected camera
             if let device = AVCaptureDevice(uniqueID: selectedID) {
+                if (isLidClosed() && isBuiltInFaceTimeCamera(device)) {
+                  print("Lid is closed and selected camera is the built-in FaceTime HD camera - skipping")
+                  return getExternalCameraDevice()
+                }
                 print("Using selected camera: \(device.localizedName)")
                 return device
             } else {
